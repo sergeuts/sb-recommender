@@ -10,7 +10,7 @@
     Требования к системе описаны по адресу 
     https://www.kaggle.com/c/skillbox-recommender-system/overview/description
     
-    Датасеты здесьЖ https://www.kaggle.com/c/skillbox-recommender-system/data
+    Датасеты здесь: https://www.kaggle.com/c/skillbox-recommender-system/data
     
     Для построения рекомендательной системы выбрана библиотека surprise (surprise.readthedocs.io)
     Датасет данной библиотеки используют таблицу рейтингов из 3-х колонок user-item-rating.
