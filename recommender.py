@@ -1,4 +1,4 @@
-''' Для построения рекомендательной системы выбрана библиотека surprise (surprise.readthedocs.io)
+''' Для построения рекомендательной системы выбрана библиотека scikit-surprise 1.1.1. (surprise.readthedocs.io)
     Датасет данной библиотеки используют таблицу рейтингов из 3-х колонок user-item-rating.
     Для подготовки этих данных используется файл transactions.csv 
     Для расчета предсказаний выбран алгоритм cингулярного разложения SVD (Singular value decomposition)
@@ -6,7 +6,7 @@
     После первоначального обучения алгоритма его расчетные данные записываются на диск (методом класса dump из этой же библиотеки).
     Повторный перерасчет алгоритма происходит если не найден его дамп или если расчетные данные устарели (при сравнении времени файла
      с временем файла транзакций). При расчете прогноза на больших входных данных (например по всем пользователям) используется 
-     буферизованный вывод в файл. По умолчанию размер буфера установлен для расчета 1000 пользователей (всего в датасете 100 000 пользователей). 
+     буферизованный вывод в файл. По умолчанию размер буфера установлен для расчета 100 пользователей (всего в датасете 100 000 пользователей). 
 
      Из дополнительных возможностей в тех. задании реализованы следующие функции:
 
@@ -30,7 +30,8 @@
         Обновление запуститься при отсутствии файлов сводного рейтинга rank.scv и файла кеша обученной модели algo.dmp.
     - Система уведомлений о состоянии алгоритма расчета и выполнении отдельных этапов. Уведомления можно отключать  .
     - Автоматическое возобновления прерванных длительных расчетов с позиции последнего сохранения буфера.
-    - Реализован замер времени (можно отключать) для отладки и оптимизации.
+    - Реализован замер времени для отладки и оптимизации (его можно отключать).
+    - В процедуре predict_extra реализован собственный скоростной алгоритм прогнозирования с использованием предварительно расчитанных данных.
 '''
 
 from surprise import SVD
@@ -51,16 +52,94 @@ algo_file     = os.path.join(data_dir, 'algo.dmp')
 # status_file содержит id последнего сохраненного расчитанного (user_id) элемента
 # При прерывании и возобновлении расчета позволяет сэкономить время
 # и начать расчет сразу со следующего элемента
-status_file   = os.path.join(data_dir, 'status2.log')
+status_file   = os.path.join(data_dir, 'status.log')
 # файл с результатами
 result_file   = os.path.join(data_dir, 'submit2.csv')
+ready_res_file= os.path.join(data_dir, 'submit_all_10.csv')
+md_file       = os.path.join(data_dir, 'model_SVD.md')
 
 print_log = True # выводить на экран процесс выполнения алгоритма
 measure_time = True # замерять и выводить время работы
 algo = [] # surprise.prediction_algorithms.matrix_factorization.SVD
+# настройка buffer_size используется при полном расчете (для всех пользователей)
+# для записи промежуточных результатов и экономии оперативной памяти
+buffer_size = 100 # при достижении этого значения результаты дописываются в submit.csv
+
 user_list = [] # все user_id, которые есть в транзакциях
 item_list = [] # все item_id, которые есть в транзакциях
+md_10 = {} # словарь {user_id: items_list} расчитанных предсказаний по 10 продуктам
+md_all = [] # расчитанные предсказания по всем продуктам для новых пользователей
 
+def predict_extra(usr='new', k=10):
+    if not md_10:
+        print('Ошибка: Не инициализированы данные md_10. Выполните сначала процедуру prepare_model или make_md.')
+        return []
+    if not md_all:
+        print('Ошибка: Не инициализированы данные md_all. Выполните сначала процедуру make_md().')
+        return []
+
+    if len(usr):
+        if type(usr) == str:
+            if usr == 'new':
+                return md_all
+            else:    
+                usr = usr.split(' ')
+    else:
+        return []       
+
+    res = []
+    for u in usr:
+        if u in user_list:
+            if k <= 10:
+                res.append((u, list(md_10[u][:k])))
+            else:
+                r = list(md_10[u])
+                id_all_list = 0
+                for i in range(k-10):
+                    while 1:
+                        if md_all[id_all_list] in r:
+                            id_all_list += 1
+                        else:
+                            break
+                    r.append(md_all[id_all_list])
+                    id_all_list += 1
+                res.append((u, r))
+        else:
+            res.append((u, list(md_all[:max(k,len(md_all))])))
+    return res
+
+
+def make_md():
+    global md_10, md_all
+    if os.path.exists(md_file):
+        (md_all, md_10), _ = dump.load(md_file)
+        if print_log: print('log: Загружены md.')
+        return
+    if os.path.exists(ready_res_file):
+        f = open(ready_res_file, 'r', encoding='UTF-8')
+        txt = f.read()
+        f.close()
+        txt = txt.splitlines()
+        md_10 = {}
+        for s in txt[1:]:
+            if s:
+                user_id, item_id = s.split(',')
+                item_id = item_id.split(' ')
+                md_10[user_id] = item_id
+    else:
+        if print_log: print(f'log: Ошибка. Не найден файл: {result_file}')
+        return
+
+    #md_10 = tuple(md_10)
+    test_set = []
+    u = '1000000000000'
+    for i in item_list:
+        test_set.append((u, i, 0))
+    predictions = algo.test(test_set)
+    predictions.sort(key=lambda x: x.est, reverse=True)
+    md_all = tuple(v.iid for v in predictions)
+    dump.dump(md_file, predictions=(md_all, md_10))
+    if print_log: print('log: Сформирован md.')
 
 # Функция make_rank_file формирует file2.csv на основе группировки данных из file1
 # по заданным колонкам cols, используя при парсинге разделители sep.
@@ -109,6 +188,7 @@ def prepare_model():
         if print_log: print('log: Загружается модель...')
         (user_list, item_list), algo = dump.load(algo_file)
         if print_log: print('log: Модель загружена.')
+        make_md()
         return True
 
     if not os.path.exists(rank_file):
@@ -142,19 +222,17 @@ def prepare_model():
     if print_log: print('log: Выполняется обучение модели...')
     algo.fit(trainset)
     dump.dump(algo_file, algo=algo, predictions=(user_list, item_list))
+    make_md()
     if print_log: print('log: Данные обученной модели сохранены в кеш (algo.dmp).')
     if print_log: print('log: Модель готова.')
     return True
 
 
-def predict(usr=[], k=10, save_file=True, n_factors=0):
+def predict(usr=[], k=10, save_file=True):
     global algo
     if algo == []:
         print('Ошибка: Не инициализирована модель алгоритма. Выполните сначала процедуру prepare_model().')
         return
-
-    if n_factors:
-        algo.n_factors = n_factors
 
     if len(usr):
         if type(usr) == str:
@@ -167,7 +245,6 @@ def predict(usr=[], k=10, save_file=True, n_factors=0):
     if measure_time:
         time_start = time.time()
         time_start1 = time.time()
-    buffer_size = 1000
     buf_count = 0
     buffer = []
     stat_file = open(status_file, 'r')
@@ -229,5 +306,6 @@ def predict(usr=[], k=10, save_file=True, n_factors=0):
 
     
 if __name__ == '__main__':
-    if prepare_model():
-        predict()
+    prepare_model()
+    # if prepare_model():
+    #     predict()
