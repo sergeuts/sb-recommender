@@ -12,7 +12,7 @@
     
     Датасеты здесь: https://www.kaggle.com/c/skillbox-recommender-system/data
     
-    Для построения рекомендательной системы выбрана библиотека surprise (surprise.readthedocs.io)
+    Для построения рекомендательной системы выбрана библиотека scikit-surprise 1.1.1. (surprise.readthedocs.io)
     Датасет данной библиотеки используют таблицу рейтингов из 3-х колонок user-item-rating.
     Для подготовки этих данных используется файл transactions.csv 
     Для расчета предсказаний выбран алгоритм cингулярного разложения SVD (Singular value decomposition)
